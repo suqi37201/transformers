@@ -832,9 +832,9 @@ class MixtralSparseMoeBlock(nn.Module):
         self.num_experts = config.num_local_experts
         self.top_k = config.num_experts_per_tok
 
-        #suqi print top_k when init moe layer
+        # suqi print top_k when init moe layer
 
-        print(f'top k is {self.top_k}')
+        # print(f'top k is {self.top_k}')
 
         # gating
         self.gate = nn.Linear(self.hidden_dim, self.num_experts, bias=False)
@@ -849,8 +849,27 @@ class MixtralSparseMoeBlock(nn.Module):
         router_logits = self.gate(hidden_states)
 
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
+
+        # suqi start: add dynamic top_k logic
+        
+        # 首先获取得分最高的两个专家的得分
+        top2_weights, top2_expert = torch.topk(routing_weights, 2, dim=-1)
+
+        # 计算得分最高的两个专家的得分之和
+        top2_weights_sum = top2_weights.sum(dim=-1)
+
+        # 根据得分和动态决定self.top_k的值
+        self.top_k = 2 if top2_weights_sum > 0.6 else 3
+
+        # 输出当前选择的专家得分
+        with open('expert.log', 'a') as file:
+            file.write(f'Experts scores: {routing_weights}, top_k = {self.top_k}\n')
+        # end: add dynamic top_k logic
+
+
         routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
         routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+
         # we cast back to the input dtype
         routing_weights = routing_weights.to(hidden_states.dtype)
 
