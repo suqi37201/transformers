@@ -832,6 +832,10 @@ class MixtralSparseMoeBlock(nn.Module):
         self.num_experts = config.num_local_experts
         self.top_k = config.num_experts_per_tok
 
+        #suqi print top_k when init moe layer
+
+        print(f'top k is {self.top_k}')
+
         # gating
         self.gate = nn.Linear(self.hidden_dim, self.num_experts, bias=False)
 
