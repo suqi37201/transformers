@@ -833,71 +833,90 @@ class MixtralSparseMoeBlock(nn.Module):
         self.num_experts = config.num_local_experts
         self.top_k = config.num_experts_per_tok
 
-        # suqi print top_k when init moe layer
-
-        # print(f'top k is {self.top_k}')
-
         # gating
         self.gate = nn.Linear(self.hidden_dim, self.num_experts, bias=False)
 
         self.experts = nn.ModuleList([MixtralBlockSparseTop2MLP(config) for _ in range(self.num_experts)])
 
+
+
+    # 分析得分，确定专家数量
+    def determine_top_k(self,routing_weights):
+        # 按得分排序
+        sorted_weights, indices = torch.sort(routing_weights, descending=True)
+        
+        # 计算sum_i
+        sum_1 = sorted_weights[:, 0]
+        sum_2 = sorted_weights[:, 0] + sorted_weights[:, 1]
+        
+        # 计算top_i
+        top_1 = sorted_weights[:, 0]
+        top_2 = sorted_weights[:, 1]
+        top_3 = sorted_weights[:, 2]
+        
+
+        # 应用选择规则
+        if top_2 / sum_1 > 0.3:
+            top_k = 2
+        else:
+            top_k = 1 
+
+        if (top_2 + top_3) / sum_1 > 0.4 or top_3 / sum_2 > 0.2:
+            top_k = 3
+            
+        
+        # with open('expert.log', 'a') as file:
+        #     file.write(f'top_1 is {top_1},top_2 is {top_2},top_3 is {top_3}, so choose top_k = {self.top_k}\n')
+        
+        return top_k
+
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """ """
         
         batch_size, sequence_length, hidden_dim = hidden_states.shape
-
-        print(f'hidden_states.shape is {hidden_states.shape}')
         hidden_states = hidden_states.view(-1, hidden_dim)
-        print(f'after view hidden_states.shape is {hidden_states.shape}')
         # router_logits: (batch * sequence_length, n_experts)
         router_logits = self.gate(hidden_states)
-        print(f'router_logits is {router_logits.shape}')
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-        # # 输出当前选择的专家得分
+        
         with open('expert.log', 'a') as file:
-            file.write(f'Experts scores: {routing_weights}')
-        # # 获取得分最高的两个专家的得分
-        # top2_weights, _ = torch.topk(routing_weights, 2, dim=-1)
-        # top2_weights_sum = top2_weights.sum(dim=-1)
+            file.write(f'batch_size  is {batch_size}, sequence_length  is {sequence_length}, hidden_dim  is {hidden_dim}, \n')
+        
+        # if routing_weights.shape[0] == 1:
+        #     self.top_k = self.determine_top_k(routing_weights)
+        # else:
+        #     self.top_k = 2
 
-        # # 假定初始化self.top_k为2，基于大部分情况进行处理
-        # self.top_k = 2
-
-        # # 选择专家
-        # routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
-        # routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
-
-        # # 将每个实例的得分和是否满足条件记录到日志
         # with open('expert.log', 'a') as file:
-        #     for idx, sum_val in enumerate(top2_weights_sum):
-        #         top_k_decision = "2" if sum_val > 0.6 else "3"
-        #         file.write(f'Instance {idx} Experts scores: {routing_weights[idx]}, top_k decision: {top_k_decision}\n')
-
+        #     file.write(f'routing_weights.shape  is {routing_weights.shape}\n')
         
-        
-        # batch_size, sequence_length, hidden_dim = hidden_states.shape
-        # hidden_states = hidden_states.view(-1, hidden_dim)
-        # # router_logits: (batch * sequence_length, n_experts)
-        # router_logits = self.gate(hidden_states)
+        # # # 输出当前选择的专家得分
+        # with open('expert.log', 'a') as file:
+        #     file.write(f'Experts scores: {routing_weights}')
 
-        # routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
-
-        # print(f'routing_weights is {routing_weights}')
-
-        # suqi start: add dynamic top_k logic
-        
-        # 首先获取得分最高的两个专家的得分
         # top2_weights, top2_expert = torch.topk(routing_weights, 2, dim=-1)
-
         # # 计算得分最高的两个专家的得分之和
         # top2_weights_sum = top2_weights.sum(dim=-1)
+        # with open('expert.log', 'a') as file:
+        #     file.write(f'routing_weights is {routing_weights}, batch_size is {batch_size}, top2_weights_sum is {top2_weights_sum}, top2_expert is {top2_expert}\n')
 
-        # # 根据得分和动态决定self.top_k的值
-        # self.top_k = 2 if top2_weights_sum > 0.6 else 3
-
-
-        # # end: add dynamic top_k logic
+        # # suqi start: add dynamic top_k logic
+        # if routing_weights.shape[0] == 1:
+        #     # 首先获取得分最高的两个专家的得分
+        #     top2_weights, top2_expert = torch.topk(routing_weights, 2, dim=-1)
+        #     # 计算得分最高的两个专家的得分之和
+        #     top2_weights_sum = top2_weights.sum(dim=-1)
+        #     # 根据得分和动态决定self.top_k的值
+        #     self.top_k = 2 if top2_weights_sum > 0.8 else 3
+        #     # 输出当前选择的专家得分
+        #     with open('expert.log', 'a') as file:
+        #         file.write(f'routing_weights is {routing_weights}, batch_size is {batch_size}, top2_weights_sum is {top2_weights_sum}, so choose top_k = {self.top_k}\n')
+        # else:
+        #     self.top_k = 2
+            # with open('expert.log', 'a') as file:
+            #     file.write(f'batch_size is {batch_size}, so choose top_k = {self.top_k}\n')
+        # end: add dynamic top_k logic
 
         # if routing_weights.shape[0] > 1 :
         #     # 将tensor转换为默认的设备(CPU)和数据类型(torch.float32)
@@ -913,6 +932,7 @@ class MixtralSparseMoeBlock(nn.Module):
         #             writer.writerow(row)
 
         routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
+        
         routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
 
         # we cast back to the input dtype
@@ -947,6 +967,7 @@ class MixtralSparseMoeBlock(nn.Module):
             # However `index_add_` only support torch tensors for indexing so we'll use
             # the `top_x` tensor here.
             final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))
+        
         final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
         return final_hidden_states, router_logits
 
