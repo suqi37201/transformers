@@ -880,8 +880,8 @@ class MixtralSparseMoeBlock(nn.Module):
         router_logits = self.gate(hidden_states)
         routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
         
-        with open('expert.log', 'a') as file:
-            file.write(f'batch_size  is {batch_size}, sequence_length  is {sequence_length}, hidden_dim  is {hidden_dim}, \n')
+        # with open('expert.log', 'a') as file:
+        #     file.write(f'batch_size  is {batch_size}, sequence_length  is {sequence_length}, hidden_dim  is {hidden_dim}, \n')
         
         # if routing_weights.shape[0] == 1:
         #     self.top_k = self.determine_top_k(routing_weights)
